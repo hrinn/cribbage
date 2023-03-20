@@ -1,65 +1,55 @@
 // Used to send messages to the client
 // Async TcpStream
 use crate::frame::Frame;
-use tokio::{net::TcpStream, io::AsyncWriteExt};
-use tokio::io::{BufWriter, AsyncReadExt};
-use bytes::{BufMut, BytesMut};
+use bufstream::BufStream;
+use bytes::{Buf, BytesMut};
+use std::io::{self, Read, Write};
+use std::net::TcpStream;
 
 pub struct Handle {
-    stream: BufWriter<TcpStream>,
+    stream: BufStream<TcpStream>,
     buffer: BytesMut,
 }
 
 impl Handle {
     pub fn new(socket: TcpStream) -> Handle {
         Handle {
-            stream: BufWriter::new(socket),
-            buffer: BytesMut::with_capacity(1024),
+            stream: BufStream::new(socket),
+            buffer: BytesMut::with_capacity(256),
         }
     }
 
-    pub async fn read_frame(&mut self) -> Frame {
-        match self.net_read().await {
-            1 => Frame::Name(String::from_utf8(self.buffer.to_vec()).unwrap()),
-            _ => panic!("Received unsupported packet!"),
+    // Reads a frame from the buffer
+    fn parse_frame(&mut self) -> Option<Frame> {
+        if self.buffer.is_empty() {
+            return None;
         }
-    }
 
-    async fn net_read(&mut self) -> u8 {
-        let mut header: [u8; 2] = [0; 2];
-
-        self.stream.read_exact(&mut header).await.unwrap();
-
-        let len = header[0];
-        let flag = header[1];
-
-        let mut data = vec![0u8, len];
-
-        self.stream.read_exact(&mut data).await.unwrap();
-
-        self.buffer.clear();
-        self.buffer.put(data.as_slice());
-
-        flag
-    }
-
-    pub async fn send_frame(&mut self, frame: Frame) {
-        let len = frame_len(&frame);
-
-        match frame {
-            Frame::Name(name) => {
-                self.stream.write_u8(len).await.unwrap();
-                self.stream.write_u8(1).await.unwrap();
-                self.stream.write_all(name.as_bytes()).await.unwrap();
+        match self.buffer.get_u8() {
+            0x1 => {
+                let name = String::from_utf8(self.buffer.to_vec()).unwrap();
+                Some(Frame::Name(name))
             }
-            Frame::Start(_) => todo!(),
+            _ => todo!(),
         }
     }
-}
 
-fn frame_len(frame: &Frame) -> u8 {
-    match frame {
-        Frame::Name(name) => name.len().try_into().unwrap(),
-        Frame::Start(_) => todo!(),
+    // Reads a frame from the TcpStream
+    pub fn read_frame(&mut self) -> Result<Option<Frame>, io::Error> {
+        if 0 == self.stream.read(&mut self.buffer)? {
+            return Ok(None); // Client disconnected
+        }
+
+        return Ok(self.parse_frame());
+    }
+
+    // Sends a frame on the TcpStream
+    pub fn send_frame(&mut self, frame: Frame) -> Result<(), io::Error> {
+        match frame {
+            Frame::Name(name) => write!(self.stream, "{}{}\n", 0x1, name)?,
+            _ => todo!(),
+        }
+
+        Ok(())
     }
 }

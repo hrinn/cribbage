@@ -1,8 +1,7 @@
-use cribbage::handle::Handle;
-use cribbage::frame::Frame;
 use clap::Parser;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::io::AsyncReadExt;
+use cribbage::frame::Frame;
+use cribbage::handle::Handle;
+use std::net::TcpListener;
 
 #[derive(Parser)]
 struct ServerArgs {
@@ -11,27 +10,27 @@ struct ServerArgs {
     port: u16,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let args = ServerArgs::parse();
 
     let addr = format!("0.0.0.0:{}", args.port);
 
     println!("Launching server on {}", addr);
 
-    let listener = TcpListener::bind(addr).await.unwrap();
+    let listener = TcpListener::bind(addr).unwrap();
 
-    loop {
-        let (socket, _) = listener.accept().await.unwrap();
-        handle_client(socket).await;
-    }
-}
+    let mut connected_players: u8 = 0;
 
-async fn handle_client(socket: TcpStream) {
-    let mut handle = Handle::new(socket);
+    while connected_players < args.num_players {
+        let (socket, _) = listener.accept().unwrap();
+        connected_players += 1;
 
-    match handle.read_frame().await {
-        Frame::Name(name) => println!("{}", name),
-        _ => panic!("Server received unexpected packet!"),
+        let mut handle = Handle::new(socket);
+        match handle.read_frame() {
+            Ok(Some(Frame::Name(name))) => println!("Player {} connected!", name),
+            Ok(None) => panic!("no packet from client"),
+            Ok(Some(_)) => panic!("unexpected packet from client"),
+            Err(e) => panic!("error reading from client: {}", e),
+        }
     }
 }
