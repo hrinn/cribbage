@@ -26,7 +26,7 @@ fn cribbage(args: ClientArgs) -> Result<(), io::Error> {
     println!("Connected to server!");
 
     // Send name packet to server
-    handle.send_frame(Frame::Name(args.name))?;
+    handle.send_frame(&Frame::Name(args.name))?;
 
     // Wait for start packet
     println!("Waiting for players...");

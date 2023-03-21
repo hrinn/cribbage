@@ -1,57 +1,82 @@
 // Used to send messages to the client
 // Async TcpStream
 use crate::frame::Frame;
-use std::io::{self, BufRead, BufReader, LineWriter, Write};
+use bytes::{Buf, BufMut, BytesMut};
+use std::borrow::BorrowMut;
+use std::io::{self, Read, Write};
 use std::net::TcpStream;
 
 pub struct Handle {
-    reader: BufReader<TcpStream>,
-    writer: LineWriter<TcpStream>,
+    stream: TcpStream,
+    buffer: BytesMut,
 }
 
 impl Handle {
-    pub fn new(socket: TcpStream) -> Handle {
+    pub fn new(stream: TcpStream) -> Handle {
         Handle {
-            reader: BufReader::new(socket.try_clone().unwrap()),
-            writer: LineWriter::new(socket),
+            stream: stream,
+            buffer: BytesMut::with_capacity(256),
+        }
+    }
+
+    fn parse_frame(&mut self) -> Result<Option<Frame>, io::Error> {
+        println!("Parsing frame");
+
+        if self.buffer.is_empty() {
+            return Ok(None);
+        }
+
+        match self.buffer.get_u8() {
+            0x1 => Ok(Some(Frame::Name(
+                String::from_utf8(self.buffer.to_vec().clone()).unwrap(),
+            ))),
+            0x2 => Ok(Some(Frame::Start(
+                String::from_utf8(self.buffer.to_vec())
+                    .unwrap()
+                    .split(',')
+                    .map(|str| String::from(str))
+                    .collect(),
+            ))),
+            _ => Err(io::ErrorKind::InvalidData.into()),
         }
     }
 
     // Reads a frame from the TcpStream
     pub fn read_frame(&mut self) -> Result<Option<Frame>, io::Error> {
-        let mut buf = String::new();
+        self.buffer.clear();
 
-        let n = self.reader.read_line(&mut buf)?;
+        println!("read");
 
-        if n == 0 {
+        if 0 == self.stream.read_to_end(self.buffer)? {
             return Ok(None); // Client disconnected
         }
 
-        return Ok(parse_frame(buf));
+        println!("Non zero read");
+
+        self.parse_frame()
     }
 
     // Sends a frame on the TcpStream
-    pub fn send_frame(&mut self, frame: Frame) -> Result<(), io::Error> {
+    pub fn send_frame(&mut self, frame: &Frame) -> Result<(), io::Error> {
         match frame {
             Frame::Name(name) => {
-                self.writer.write(&[0x1])?;
-                self.writer.write_all(name.as_bytes())?;
-                self.writer.write_all(b"\n")?;
+                self.buffer.put_u8(0x1);
+                self.buffer.put(name.as_bytes());
+                self.buffer.put_slice(b"\n");
             }
-            _ => todo!(),
+            Frame::Start(names) => {
+                self.buffer.put_u8(0x2);
+
+                for name in names {
+                    self.buffer.put(format!("{name},").as_bytes());
+                }
+            }
         }
 
+        self.stream.write_all(&self.buffer)?;
+        self.stream.flush()?;
+        self.buffer.clear();
+
         Ok(())
-    }
-}
-
-fn parse_frame(buf: String) -> Option<Frame> {
-    if buf.is_empty() {
-        return None;
-    }
-
-    match buf.as_bytes().get(0).unwrap() {
-        0x1 => Some(Frame::Name(buf[1..].trim().to_string())),
-        _ => todo!(),
     }
 }
