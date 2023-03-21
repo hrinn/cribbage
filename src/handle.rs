@@ -1,55 +1,57 @@
 // Used to send messages to the client
 // Async TcpStream
 use crate::frame::Frame;
-use bufstream::BufStream;
-use bytes::{Buf, BytesMut};
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead, BufReader, LineWriter, Write};
 use std::net::TcpStream;
 
 pub struct Handle {
-    stream: BufStream<TcpStream>,
-    buffer: BytesMut,
+    reader: BufReader<TcpStream>,
+    writer: LineWriter<TcpStream>,
 }
 
 impl Handle {
     pub fn new(socket: TcpStream) -> Handle {
         Handle {
-            stream: BufStream::new(socket),
-            buffer: BytesMut::with_capacity(256),
-        }
-    }
-
-    // Reads a frame from the buffer
-    fn parse_frame(&mut self) -> Option<Frame> {
-        if self.buffer.is_empty() {
-            return None;
-        }
-
-        match self.buffer.get_u8() {
-            0x1 => {
-                let name = String::from_utf8(self.buffer.to_vec()).unwrap();
-                Some(Frame::Name(name))
-            }
-            _ => todo!(),
+            reader: BufReader::new(socket.try_clone().unwrap()),
+            writer: LineWriter::new(socket),
         }
     }
 
     // Reads a frame from the TcpStream
     pub fn read_frame(&mut self) -> Result<Option<Frame>, io::Error> {
-        if 0 == self.stream.read(&mut self.buffer)? {
+        let mut buf = String::new();
+
+        let n = self.reader.read_line(&mut buf)?;
+
+        if n == 0 {
             return Ok(None); // Client disconnected
         }
 
-        return Ok(self.parse_frame());
+        return Ok(parse_frame(buf));
     }
 
     // Sends a frame on the TcpStream
     pub fn send_frame(&mut self, frame: Frame) -> Result<(), io::Error> {
         match frame {
-            Frame::Name(name) => write!(self.stream, "{}{}\n", 0x1, name)?,
+            Frame::Name(name) => {
+                self.writer.write(&[0x1])?;
+                self.writer.write_all(name.as_bytes())?;
+                self.writer.write_all(b"\n")?;
+            }
             _ => todo!(),
         }
 
         Ok(())
+    }
+}
+
+fn parse_frame(buf: String) -> Option<Frame> {
+    if buf.is_empty() {
+        return None;
+    }
+
+    match buf.as_bytes().get(0).unwrap() {
+        0x1 => Some(Frame::Name(buf[1..].trim().to_string())),
+        _ => todo!(),
     }
 }

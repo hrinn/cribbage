@@ -1,0 +1,26 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Rust Client Debug Launch",
+            "program": "${workspaceRoot}/target/debug/cribbage.exe",
+            "args": ["hayden", "localhost:38192"],
+            "cwd": "${workspaceRoot}/target/debug/",
+            "sourceLanguages": ["rust"]
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Rust Server Debug Launch",
+            "program": "${workspaceRoot}/target/debug/crib_server.exe",
+            "args": ["2"],
+            "cwd": "${workspaceRoot}/target/debug/",
+            "sourceLanguages": ["rust"]
+        },
+    ]
+}
