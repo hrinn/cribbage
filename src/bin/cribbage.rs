@@ -33,9 +33,26 @@ fn cribbage(args: ClientArgs) -> Result<(), io::Error> {
 
     if let Some(Frame::Start(names)) = handle.read_frame()? {
         println!("Game starting with players: {:?}", names);
+        println!("First dealer: {}", names.first().unwrap());
     } else {
         return Err(io::ErrorKind::InvalidData.into());
     }
 
+    game_loop(&mut handle)?;
+
     Ok(())
+}
+
+fn game_loop(handle: &mut Handle) -> Result<(), io::Error> {
+    loop {
+        // Wait for hand
+        if let Some(Frame::Hand(hand)) = handle.read_frame()? {
+            println!("Hand:");
+            hand.pretty_print();
+        } else {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+
+        //
+    }
 }
