@@ -77,18 +77,45 @@ fn get_highest_score(players: &Vec<Player>) -> u8 {
 }
 
 fn deal(deck: &mut Deck, players: &mut Vec<Player>, num_players: usize) -> Result<Hand, io::Error> {
+    let num_deal = 8 - num_players; // 2 players get 6, 3 players get 5
+    let mut crib = Hand::new();
+
     deck.shuffle();
 
-    let num_deal = if num_players == 2 { 6 } else { 5 };
-
-    for player in players {
+    // Send each hand
+    for player in players.iter_mut() {
         let hand = deck.deal(num_deal);
+        println!("Dealing hand to {} ({})", player.name, hand);
         player.handle.send_frame(&Frame::Hand(hand))?;
-        println!("Dealt hand to {}", player.name);
     }
 
-    // Wait for all discards
-    loop {}
+    // Get each discard
+    for player in players.iter_mut() {
+        let mut discard_hand = match player.handle.read_frame()? {
+            Some(Frame::Hand(discard_hand)) => discard_hand,
+            _ => return Err(io::ErrorKind::InvalidData.into()),
+        };
+
+        println!("Received discard from {} ({})", player.name, discard_hand);
+
+        crib.combine(&mut discard_hand);
+    }
+
+    println!("Built crib!");
+
+    // Draw magic card
+    let magic = deck.draw_magic();
+    println!("Drew magic card: {}", magic.to_short_name());
+    let magic_frame = Frame::Card(magic);
+
+    // Send magic card to clients
+    for player in players.iter_mut() {
+        player.handle.send_frame(&magic_frame)?;
+    }
+
+    // Wait for scores from nobs
+
+    Ok(crib)
 }
 
 fn game_loop(players: &mut Vec<Player>, num_players: usize) -> Result<&Player, io::Error> {
