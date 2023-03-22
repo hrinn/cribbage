@@ -98,7 +98,7 @@ impl Hand {
         self.cards.len()
     }
 
-    pub fn pretty_print(&self) {
+    pub fn pretty_print(&self, index_flag: bool) {
         let mut lines = vec![
             "┌─────┐ ".repeat(self.len()),
             "│xz   │ ".repeat(self.len()),
@@ -121,15 +121,25 @@ impl Hand {
 
             let fourth_line = lines.get(3).unwrap();
             let suit = match card.suit {
-                Suit::Spades => "♠",
+                Suit::Spades => "♤",
                 Suit::Hearts => "♥",
                 Suit::Diamonds => "♦",
-                Suit::Clubs => "♣",
+                Suit::Clubs => "♧",
             };
 
             let new = fourth_line.replacen("y", suit, 1);
             lines.remove(3);
             lines.insert(3, new);
+        }
+
+        if index_flag {
+            let mut index_line = String::new();
+
+            for i in 0..self.len() {
+                index_line.push_str(&format!("  ({})   ", i));
+            }
+
+            lines.push(index_line)
         }
 
         for line in lines {

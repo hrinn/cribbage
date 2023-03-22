@@ -48,7 +48,7 @@ fn game_loop(handle: &mut Handle) -> Result<(), io::Error> {
         // Wait for hand
         if let Some(Frame::Hand(hand)) = handle.read_frame()? {
             println!("Hand:");
-            hand.pretty_print();
+            hand.pretty_print(true);
         } else {
             return Err(io::ErrorKind::InvalidData.into());
         }
