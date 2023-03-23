@@ -109,6 +109,7 @@ fn get_hand(handle: &mut Handle, num_players: usize) -> Result<Hand, io::Error> 
     hand.pretty_print(false, true);
 
     // Score magic
+    println!("{} point hand!", hand.score());
 
     Ok(hand)
 }

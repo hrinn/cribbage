@@ -105,7 +105,7 @@ fn deal(deck: &mut Deck, players: &mut Vec<Player>, num_players: usize) -> Resul
 
     // Draw magic card
     let magic = deck.draw_magic();
-    println!("Drew magic card: {}", magic.to_short_name());
+    println!("Drew magic card: {}", magic);
     let magic_frame = Frame::Card(magic);
 
     // Send magic card to clients
@@ -114,6 +114,7 @@ fn deal(deck: &mut Deck, players: &mut Vec<Player>, num_players: usize) -> Resul
     }
 
     // Wait for scores from nobs
+    loop {}
 
     Ok(crib)
 }

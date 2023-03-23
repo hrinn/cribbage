@@ -54,14 +54,14 @@ impl Handle {
                 buffer.put_u8(0x3);
 
                 for card in hand.cards() {
-                    buffer.put(format!("{},", card.to_short_name()).as_bytes());
+                    buffer.put(format!("{},", card.to_net_name()).as_bytes());
                 }
 
                 buffer.put_slice(b"\n");
             }
             Frame::Card(card) => {
                 buffer.put_u8(0x4);
-                buffer.put(card.to_short_name().as_bytes());
+                buffer.put(card.to_net_name().as_bytes());
                 buffer.put_slice(b"\n");
             }
             Frame::Points(points) => {
@@ -98,10 +98,10 @@ fn parse_frame(buffer: &str) -> Result<Option<Frame>, io::Error> {
                 .strip_suffix(',')
                 .unwrap()
                 .split(',')
-                .map(|str| Card::from_short_name(str.to_string()))
+                .map(|str| Card::from_net_name(str.to_string()))
                 .collect(),
         )))),
-        0x4 => Ok(Some(Frame::Card(Card::from_short_name(
+        0x4 => Ok(Some(Frame::Card(Card::from_net_name(
             buffer[1..].to_string(),
         )))),
         0x5 => Ok(Some(Frame::Points(buffer.as_bytes()[1]))),

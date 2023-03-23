@@ -1,7 +1,8 @@
+use itertools::Itertools;
 use rand::{seq::SliceRandom, thread_rng};
 use std::fmt;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 enum Suit {
     Spades,
     Hearts,
@@ -9,29 +10,55 @@ enum Suit {
     Clubs,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Card {
     value: char,
     suit: Suit,
 }
 
 impl Card {
-    pub fn to_short_name(&self) -> String {
-        let mut name = String::new();
-
-        name.push(self.value);
-
-        match self.suit {
-            Suit::Spades => name.push('S'),
-            Suit::Hearts => name.push('H'),
-            Suit::Diamonds => name.push('D'),
-            Suit::Clubs => name.push('C'),
+    pub fn numeric_value(&self) -> u8 {
+        match self.value {
+            'A' => 1,
+            '2' => 2,
+            '3' => 3,
+            '4' => 4,
+            '5' => 5,
+            '6' => 6,
+            '7' => 7,
+            '8' => 8,
+            '9' => 9,
+            'T' => 10,
+            'J' => 10,
+            'Q' => 10,
+            'K' => 10,
+            _ => panic!("Bad card value!"),
         }
-
-        name
     }
 
-    pub fn from_short_name(name: String) -> Card {
+    pub fn order(&self) -> u8 {
+        match self.value {
+            'J' => 11,
+            'Q' => 12,
+            'K' => 13,
+            _ => self.numeric_value(),
+        }
+    }
+
+    pub fn to_net_name(&self) -> String {
+        format!(
+            "{}{}",
+            self.value,
+            match self.suit {
+                Suit::Spades => "S",
+                Suit::Hearts => "H",
+                Suit::Diamonds => "D",
+                Suit::Clubs => "C",
+            }
+        )
+    }
+
+    pub fn from_net_name(name: String) -> Card {
         let mut chars = name.chars();
 
         let value = chars.next().unwrap();
@@ -48,19 +75,40 @@ impl Card {
     }
 }
 
+impl fmt::Display for Card {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let str = &self.value.to_string();
+
+        let val = match self.value {
+            'T' => "10",
+            _ => str,
+        };
+
+        write!(
+            f,
+            "{}{}",
+            val,
+            match self.suit {
+                Suit::Spades => "♤",
+                Suit::Hearts => "♥",
+                Suit::Diamonds => "♦",
+                Suit::Clubs => "♧",
+            }
+        )
+    }
+}
+
 pub struct Deck {
     cards: Vec<Card>,
 }
 
 impl Deck {
     pub fn new() -> Deck {
-        let mut cards = Vec::new();
-
-        for suit in [Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs] {
-            for value in "A23456789TJQK".chars() {
-                cards.push(Card { value, suit })
-            }
-        }
+        let cards: Vec<Card> = [Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs]
+            .iter()
+            .cartesian_product("A23456789TJQK".chars())
+            .map(|(&suit, value)| Card { value, suit })
+            .collect();
 
         Deck { cards }
     }
@@ -131,8 +179,57 @@ impl Hand {
         self.magic = Some(magic);
     }
 
+    // Scores the hand for the 'Show' round, includes magic card
     pub fn score(&self) -> u8 {
-        todo!()
+        let mut score: u8 = 0;
+        let mut full_hand = vec![self.magic.clone().unwrap()];
+        full_hand.extend_from_slice(&self.cards);
+        full_hand.sort_by(|a, b| a.order().cmp(&b.order()));
+
+        for perm in (2..=full_hand.len())
+            .collect::<Vec<usize>>()
+            .iter()
+            .map(|len| full_hand.iter().combinations(*len))
+            .flatten()
+            .unique()
+        {
+            // Pairs
+            if perm.len() == 2 && (perm[0].value == perm[1].value) {
+                score += 2;
+
+                println!("Pair for {score}! ({}, {})", perm[0], perm[1]);
+            }
+
+            // Fifteens
+            if perm.iter().map(|card| card.numeric_value()).sum::<u8>() == 15 {
+                score += 2;
+
+                println!("Fifteen for {score}! ({})", perm.iter().join(", "));
+            }
+
+            // Runs
+            if perm.len() >= 3 {
+                let mut run = true;
+                let mut last = perm[0].order();
+
+                for card in perm.iter().skip(1) {
+                    if card.order() != last + 1 {
+                        run = false;
+                        break;
+                    }
+
+                    last = card.order();
+                }
+
+                if run {
+                    score += perm.len() as u8;
+
+                    println!("Run for {score}! ({})", perm.iter().join(", "));
+                }
+            }
+        }
+
+        score
     }
 
     pub fn len(&self) -> usize {
@@ -216,8 +313,7 @@ impl fmt::Display for Hand {
         let mut s = String::new();
 
         for card in &self.cards {
-            s.push_str(&card.to_short_name());
-            s.push(',');
+            s.push_str(format!("{},", card).as_str());
         }
 
         write!(f, "{}", s)
