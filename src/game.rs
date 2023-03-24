@@ -182,6 +182,25 @@ impl Hand {
     // Scores the hand for the 'Show' round, includes magic card
     pub fn score(&self) -> u8 {
         let mut score: u8 = 0;
+
+        // Nob
+        let jack: Vec<&Card> = self
+            .cards
+            .iter()
+            .filter(|card| card.suit == self.magic.clone().unwrap().suit)
+            .filter(|card| card.value == 'J')
+            .collect();
+
+        if jack.len() == 1 {
+            score += 1;
+
+            println!(
+                "Nob for {score}! ({}, {})",
+                jack.first().unwrap(),
+                self.magic.as_ref().unwrap()
+            );
+        }
+
         let mut full_hand = vec![self.magic.clone().unwrap()];
         full_hand.extend_from_slice(&self.cards);
         full_hand.sort_by(|a, b| a.order().cmp(&b.order()));
@@ -191,7 +210,6 @@ impl Hand {
             .iter()
             .map(|len| full_hand.iter().combinations(*len))
             .flatten()
-            .unique()
         {
             // Pairs
             if perm.len() == 2 && (perm[0].value == perm[1].value) {

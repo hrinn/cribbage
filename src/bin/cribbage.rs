@@ -2,6 +2,7 @@ use clap::Parser;
 use cribbage::frame::Frame;
 use cribbage::game::{Card, Hand};
 use cribbage::handle::Handle;
+use itertools::Itertools;
 use std::io;
 use std::net::TcpStream;
 
@@ -52,16 +53,29 @@ fn cribbage(args: ClientArgs) -> Result<(), io::Error> {
     // Wait for start packet
     println!("Waiting for players...");
 
-    let names = match handle.read_frame()? {
+    let players = match handle.read_frame()? {
         Some(Frame::Start(names)) => names,
         _ => return Err(io::ErrorKind::InvalidData.into()),
     };
 
-    println!("Game starting with players: {:?}", names);
-    println!("First dealer: {}", names.first().unwrap());
-    let num_players = names.len();
+    println!("Game starting with players: {:?}", players);
 
-    game_loop(&mut handle, num_players)?;
+    game_loop(&mut handle, players)?;
+
+    Ok(())
+}
+
+fn game_loop(handle: &mut Handle, players: Vec<String>) -> Result<(), io::Error> {
+
+    let num_players = players.len();
+    let mut dealer_iter = players.iter().cycle().peekable();
+
+    for dealer in dealer_iter {
+        println!("Dealer: {}", dealer);
+
+        let hand = get_hand(handle, num_players)?;
+
+    }
 
     Ok(())
 }
@@ -73,7 +87,7 @@ fn get_hand(handle: &mut Handle, num_players: usize) -> Result<Hand, io::Error> 
         _ => return Err(io::ErrorKind::InvalidData.into()),
     };
 
-    println!("Hand:");
+    println!("\nHand:");
     hand.pretty_print(true, false);
 
     let prompt = if num_players == 2 {
@@ -93,6 +107,8 @@ fn get_hand(handle: &mut Handle, num_players: usize) -> Result<Hand, io::Error> 
         discard_hand.push(hand.remove(i.into()));
     }
 
+    println!("Discarding... ({})", discard_hand.cards().iter().join(", "));
+
     // Send discard to server
     handle.send_frame(&Frame::Hand(discard_hand))?;
 
@@ -105,17 +121,8 @@ fn get_hand(handle: &mut Handle, num_players: usize) -> Result<Hand, io::Error> 
     hand.set_magic(magic);
     println!("Magic card dealt!");
 
-    println!("Final Hand + Magic Card:");
+    println!("\nFinal Hand + Magic Card:");
     hand.pretty_print(false, true);
 
-    // Score magic
-    println!("{} point hand!", hand.score());
-
     Ok(hand)
-}
-
-fn game_loop(handle: &mut Handle, num_players: usize) -> Result<(), io::Error> {
-    loop {
-        let hand = get_hand(handle, num_players)?;
-    }
 }

@@ -2,7 +2,8 @@ use clap::Parser;
 use cribbage::frame::Frame;
 use cribbage::game::{Deck, Hand};
 use cribbage::handle::Handle;
-use std::io;
+use std::io::{self, repeat};
+use std::iter::{self, Cycle};
 use std::net::TcpListener;
 
 #[derive(Parser)]
@@ -120,11 +121,14 @@ fn deal(deck: &mut Deck, players: &mut Vec<Player>, num_players: usize) -> Resul
 }
 
 fn game_loop(players: &mut Vec<Player>, num_players: usize) -> Result<&Player, io::Error> {
-    let mut dealer_index = 0;
     let mut deck = Deck::new();
+    // let mut dealer_iter = players.iter().cycle();
+    let indices: Vec<usize> = (1..=num_players).collect();
+    let mut dealer_index = indices.into_iter().cycle().peekable();
 
     while get_highest_score(&players) < 121 {
-        let dealer = players.get(dealer_index).unwrap();
+        // let dealer = dealer_iter.next().unwrap();
+        let dealer = players.get(dealer_index.next().unwrap()).unwrap();
 
         // Deal
         let crib = deal(&mut deck, players, num_players)?;
@@ -132,12 +136,6 @@ fn game_loop(players: &mut Vec<Player>, num_players: usize) -> Result<&Player, i
         // Play
 
         // Show
-
-        if dealer_index >= players.len() {
-            dealer_index = 0;
-        } else {
-            dealer_index += 1;
-        }
     }
 
     Ok(players.iter().max_by_key(|p| p.score).unwrap())
