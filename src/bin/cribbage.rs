@@ -1,10 +1,12 @@
 use clap::Parser;
 use cribbage::frame::Frame;
-use cribbage::game::{Card, Hand};
+use cribbage::game::Hand;
 use cribbage::handle::Handle;
 use itertools::Itertools;
 use std::io;
 use std::net::TcpStream;
+use std::iter::{Peekable, Cycle};
+use core::slice::Iter;
 
 #[derive(Parser)]
 struct ClientArgs {
@@ -48,7 +50,7 @@ fn cribbage(args: ClientArgs) -> Result<(), io::Error> {
     println!("Connected to server!");
 
     // Send name packet to server
-    handle.send_frame(&Frame::Name(args.name))?;
+    handle.send_frame(&Frame::Name(args.name.clone()))?;
 
     // Wait for start packet
     println!("Waiting for players...");
@@ -60,21 +62,37 @@ fn cribbage(args: ClientArgs) -> Result<(), io::Error> {
 
     println!("Game starting with players: {:?}", players);
 
-    game_loop(&mut handle, players)?;
+    game_loop(&mut handle, players, args.name)?;
 
     Ok(())
 }
 
-fn game_loop(handle: &mut Handle, players: Vec<String>) -> Result<(), io::Error> {
+fn game_loop(handle: &mut Handle, players: Vec<String>, name: String) -> Result<(), io::Error> {
 
     let num_players = players.len();
     let mut dealer_iter = players.iter().cycle().peekable();
 
-    for dealer in dealer_iter {
+    loop {
+        let dealer = dealer_iter.next().unwrap();
         println!("Dealer: {}", dealer);
 
         let hand = get_hand(handle, num_players)?;
 
+        play(handle, hand, dealer_iter.clone())?
+
+
+
+
+    }
+}
+
+fn play(handle: &mut Handle, hand: Hand, players: Peekable<Cycle<Iter<String>>>, name: String) -> Result<(), io::Error> {
+    for player in players {
+        if player == &name {
+            // Play
+        } else {
+            // Wait for player
+        }
     }
 
     Ok(())

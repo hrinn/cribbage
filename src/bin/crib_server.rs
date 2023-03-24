@@ -107,7 +107,7 @@ fn deal(deck: &mut Deck, players: &mut Vec<Player>, num_players: usize) -> Resul
     // Draw magic card
     let magic = deck.draw_magic();
     println!("Drew magic card: {}", magic);
-    let magic_frame = Frame::Card(magic);
+    let magic_frame = Frame::Card(magic.to_owned());
 
     // Send magic card to clients
     for player in players.iter_mut() {

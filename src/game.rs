@@ -131,8 +131,8 @@ impl Deck {
         }
     }
 
-    pub fn draw_magic(&self) -> Card {
-        self.cards.last().unwrap().to_owned()
+    pub fn draw_magic(&self) -> &Card {
+        self.cards.last().unwrap()
     }
 
     pub fn rejoin(&mut self, hand: &mut Hand) {
