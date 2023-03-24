@@ -3,7 +3,7 @@ use rand::{seq::SliceRandom, thread_rng};
 use std::fmt;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
-enum Suit {
+pub enum Suit {
     Spades,
     Hearts,
     Diamonds,
@@ -12,12 +12,12 @@ enum Suit {
 
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct Card {
-    value: char,
-    suit: Suit,
+    pub value: char,
+    pub suit: Suit,
 }
 
 impl Card {
-    pub fn numeric_value(&self) -> u8 {
+    pub fn score_value(&self) -> u8 {
         match self.value {
             'A' => 1,
             '2' => 2,
@@ -41,7 +41,7 @@ impl Card {
             'J' => 11,
             'Q' => 12,
             'K' => 13,
-            _ => self.numeric_value(),
+            _ => self.score_value(),
         }
     }
 
@@ -169,6 +169,10 @@ impl Hand {
         self.cards.remove(index)
     }
 
+    pub fn remove_card(&mut self, card: &Card) {
+        self.cards.retain(|c| c != card);
+    }
+
     pub fn combine(&mut self, other: &mut Hand) {
         while other.len() > 0 {
             self.push(other.remove(0))
@@ -219,7 +223,7 @@ impl Hand {
             }
 
             // Fifteens
-            if perm.iter().map(|card| card.numeric_value()).sum::<u8>() == 15 {
+            if perm.iter().map(|card| card.score_value()).sum::<u8>() == 15 {
                 score += 2;
 
                 println!("Fifteen for {score}! ({})", perm.iter().join(", "));

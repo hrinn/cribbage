@@ -39,7 +39,6 @@ impl Handle {
             Frame::Name(name) => {
                 buffer.put_u8(0x1);
                 buffer.put(name.as_bytes());
-                buffer.put_slice(b"\n");
             }
             Frame::Start(names) => {
                 buffer.put_u8(0x2);
@@ -47,8 +46,6 @@ impl Handle {
                 for name in names {
                     buffer.put(format!("{},", name).as_bytes());
                 }
-
-                buffer.put_slice(b"\n");
             }
             Frame::Hand(hand) => {
                 buffer.put_u8(0x3);
@@ -56,21 +53,16 @@ impl Handle {
                 for card in hand.cards() {
                     buffer.put(format!("{},", card.to_net_name()).as_bytes());
                 }
-
-                buffer.put_slice(b"\n");
             }
             Frame::Card(card) => {
                 buffer.put_u8(0x4);
                 buffer.put(card.to_net_name().as_bytes());
-                buffer.put_slice(b"\n");
             }
-            Frame::Points(points) => {
-                buffer.put_u8(0x5);
-                buffer.put_u8(*points);
-                buffer.put_slice(b"\n");
-            }
+            Frame::Go => buffer.put_u8(0x5),
+            Frame::GoEnd => buffer.put_u8(0x6),
         }
 
+        buffer.put_slice(b"\n");
         self.stream.write_all(&buffer)?;
         self.stream.flush()?;
 
@@ -104,7 +96,8 @@ fn parse_frame(buffer: &str) -> Result<Option<Frame>, io::Error> {
         0x4 => Ok(Some(Frame::Card(Card::from_net_name(
             buffer[1..].to_string(),
         )))),
-        0x5 => Ok(Some(Frame::Points(buffer.as_bytes()[1]))),
+        0x5 => Ok(Some(Frame::Go)),
+        0x6 => Ok(Some(Frame::GoEnd)),
         _ => Err(io::ErrorKind::InvalidData.into()),
     }
 }

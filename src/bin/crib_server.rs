@@ -2,9 +2,10 @@ use clap::Parser;
 use cribbage::frame::Frame;
 use cribbage::game::{Deck, Hand};
 use cribbage::handle::Handle;
-use std::io::{self, repeat};
-use std::iter::{self, Cycle};
+use std::io;
+use std::iter::Cycle;
 use std::net::TcpListener;
+use std::vec::IntoIter;
 
 #[derive(Parser)]
 struct ServerArgs {
@@ -114,26 +115,56 @@ fn deal(deck: &mut Deck, players: &mut Vec<Player>, num_players: usize) -> Resul
         player.handle.send_frame(&magic_frame)?;
     }
 
-    // Wait for scores from nobs
-    loop {}
-
     Ok(crib)
+}
+
+fn get_play(players: &mut Vec<Player>, player_index: usize) -> Result<Frame, io::Error> {
+    let player = players.get_mut(player_index).unwrap();
+
+    println!("Waiting for play from {}", player.name);
+
+    match player.handle.read_frame()? {
+        Some(frame) => Ok(frame),
+        None => Err(io::ErrorKind::InvalidData.into()),
+    }
+}
+
+fn play(
+    players: &mut Vec<Player>,
+    mut player_index: Cycle<IntoIter<usize>>,
+) -> Result<(), io::Error> {
+    loop {
+        let current_player_index = player_index.next().unwrap();
+
+        // Wait for play from player
+        let frame = get_play(players, current_player_index)?;
+
+        // Send play to other players
+        for i in 0..players.len() {
+            if i == current_player_index {
+                continue;
+            }
+
+            players.get_mut(i).unwrap().handle.send_frame(&frame)?;
+        }
+    }
 }
 
 fn game_loop(players: &mut Vec<Player>, num_players: usize) -> Result<&Player, io::Error> {
     let mut deck = Deck::new();
     // let mut dealer_iter = players.iter().cycle();
-    let indices: Vec<usize> = (1..=num_players).collect();
-    let mut dealer_index = indices.into_iter().cycle().peekable();
+    let indices: Vec<usize> = (0..num_players).collect();
+    let mut dealer_index = indices.into_iter().cycle();
 
     while get_highest_score(&players) < 121 {
-        // let dealer = dealer_iter.next().unwrap();
         let dealer = players.get(dealer_index.next().unwrap()).unwrap();
+        println!("Dealer = {}", dealer.name);
 
         // Deal
         let crib = deal(&mut deck, players, num_players)?;
 
         // Play
+        play(players, dealer_index.clone())?
 
         // Show
     }
