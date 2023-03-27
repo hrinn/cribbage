@@ -135,11 +135,12 @@ impl Deck {
         self.cards.last().unwrap()
     }
 
-    pub fn rejoin(&mut self, hand: &mut Hand) {
+    pub fn rejoin(&mut self, mut hand: Hand) {
         self.cards.append(&mut hand.cards);
     }
 }
 
+#[derive(Clone)]
 pub struct Hand {
     cards: Vec<Card>,
     magic: Option<Card>,
@@ -340,4 +341,23 @@ impl fmt::Display for Hand {
 
         write!(f, "{}", s)
     }
+}
+
+// Takes a sorted sliced of cards and returns true if they are a run
+pub fn is_run(cards: &[&Card]) -> bool {
+    if cards.len() < 3 {
+        return false;
+    }
+
+    let mut last = cards[0].order();
+
+    for card in cards.iter().skip(1) {
+        if card.order() != last + 1 {
+            return false;
+        }
+
+        last = card.order();
+    }
+
+    true
 }

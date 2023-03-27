@@ -58,8 +58,18 @@ impl Handle {
                 buffer.put_u8(0x4);
                 buffer.put(card.to_net_name().as_bytes());
             }
-            Frame::Go => buffer.put_u8(0x5),
-            Frame::GoEnd => buffer.put_u8(0x6),
+            Frame::Play(card, out) => {
+                buffer.put_u8(0x5);
+                buffer.put_u8(if *out { 0x1 } else { 0x0 });
+                if let Some(card) = card {
+                    buffer.put(card.to_net_name().as_bytes());
+                } else {
+                    buffer.put_slice(b"go");
+                }
+            }
+            Frame::RoundDone => {
+                buffer.put_u8(0x6);
+            }
         }
 
         buffer.put_slice(b"\n");
@@ -96,8 +106,18 @@ fn parse_frame(buffer: &str) -> Result<Option<Frame>, io::Error> {
         0x4 => Ok(Some(Frame::Card(Card::from_net_name(
             buffer[1..].to_string(),
         )))),
-        0x5 => Ok(Some(Frame::Go)),
-        0x6 => Ok(Some(Frame::GoEnd)),
+        0x5 => {
+            let card = if buffer[2..].eq("go") {
+                None
+            } else {
+                Some(Card::from_net_name(buffer[2..].to_string()))
+            };
+
+            let out = buffer[1..2].as_bytes().get(0).unwrap() == &0x1;
+
+            Ok(Some(Frame::Play(card, out)))
+        },
+        0x6 => Ok(Some(Frame::RoundDone)),
         _ => Err(io::ErrorKind::InvalidData.into()),
     }
 }

@@ -1,17 +1,97 @@
 use clap::Parser;
-use core::slice::Iter;
 use cribbage::frame::Frame;
-use cribbage::game::{Card, Hand};
+use cribbage::game::{is_run, Card, Hand};
 use cribbage::handle::Handle;
 use itertools::Itertools;
+use std::collections::HashMap;
 use std::io;
-use std::iter::Cycle;
 use std::net::TcpStream;
 
 #[derive(Parser)]
 struct ClientArgs {
     name: String,
     addr: String,
+}
+
+struct Player {
+    name: String,
+    score: u8,
+}
+
+struct Players {
+    pub players: Vec<Player>,
+    dealer_index: usize,
+    player_index: usize,
+}
+
+impl Players {
+    pub fn from(names: Vec<String>) -> Players {
+        Players {
+            players: names
+                .into_iter()
+                .map(|name| Player { name, score: 0 })
+                .collect_vec(),
+            dealer_index: 0,
+            player_index: 0,
+        }
+    }
+
+    pub fn print_scores(&self) {
+        let min_score = self.players.iter().map(|p| p.score).min().unwrap();
+        let max_score = self.max_score();
+
+        for player in &self.players {
+            let relative_score = player.score - min_score;
+            println!("{:<width$} ({}, {})",
+                "o".repeat(relative_score as usize),
+                player.name,
+                player.score,
+                width=max_score as usize);
+        }
+    }
+
+    pub fn max_score(&self) -> u8 {
+        self.players.iter().map(|p| p.score).max().unwrap()
+    }
+
+    pub fn player_with_max_score(&self) -> &Player {
+        self.players
+            .iter()
+            .max_by_key(|p| p.score)
+            .expect("No players found")
+    }
+
+    pub fn next_dealer(&mut self) -> String {
+        let len = self.players.len();
+        let dealer = self
+            .players
+            .get(self.dealer_index)
+            .expect("No dealer found");
+        self.dealer_index = (self.dealer_index + 1) % len;
+        dealer.name.clone()
+    }
+
+    pub fn start_play(&mut self) {
+        self.player_index = self.dealer_index;
+    }
+
+    pub fn next_player(&mut self) -> &mut Player {
+        let len = self.players.len();
+        let player = self
+            .players
+            .get_mut(self.player_index)
+            .expect("No dealer found");
+        self.player_index = (self.player_index + 1) % len;
+        player
+    }
+
+    pub fn decrement_player(&mut self) {
+        self.player_index = (self.player_index + self.players.len() - 1) % self.players.len();
+    }
+
+    pub fn len(&self) -> usize {
+        self.players.len()
+    }
 }
 
 fn main() {
@@ -35,30 +115,88 @@ fn cribbage(args: ClientArgs) -> Result<(), io::Error> {
     // Wait for start packet
     println!("Waiting for players...");
 
-    let players = match handle.read_frame()? {
+    let names = match handle.read_frame()? {
         Some(Frame::Start(names)) => names,
         _ => return Err(io::ErrorKind::InvalidData.into()),
     };
 
-    println!("Game starting with players: {:?}", players);
+    println!("Game starting with players: {:?}", names);
+
+    let players = Players::from(names);
 
     game_loop(&mut handle, players, args.name)?;
 
     Ok(())
 }
 
-fn game_loop(handle: &mut Handle, players: Vec<String>, name: String) -> Result<(), io::Error> {
+fn game_loop(handle: &mut Handle, mut players: Players, name: String) -> Result<(), io::Error> {
     let num_players = players.len();
-    let mut dealer_iter = players.iter().cycle();
 
-    loop {
-        let dealer = dealer_iter.next().unwrap();
+    while players.max_score() < 121 {
+        let dealer = players.next_dealer();
         println!("Dealer: {}", dealer);
 
         let hand = get_hand(handle, num_players)?;
 
-        play(handle, hand, dealer_iter.clone(), &name, num_players)?
+        play(handle, &hand, &mut players, &name)?;
+
+        show(handle, hand, &mut players, &name, &dealer)?;
+
+        println!("\nScores:");
+        players.print_scores();
     }
+
+    let winner = players.player_with_max_score();
+
+    println!("{} wins!", winner.name);
+
+    Ok(())
+}
+
+fn show(
+    handle: &mut Handle,
+    hand: Hand,
+    players: &mut Players,
+    name: &String,
+    dealer: &String,
+) -> Result<(), io::Error> {
+
+    players.start_play();
+    println!("\nShow!");
+
+    for _ in 0..players.len() {
+        let player = players.next_player();
+
+        if &player.name == name {
+            println!("Your Hand + Magic Card:");
+            hand.pretty_print(false, true);
+            player.score += hand.score();
+            handle.send_frame(&Frame::Hand(hand.clone()))?;
+        } else {
+            // Receive hand from server and score
+            let hand = match handle.read_frame()? {
+                Some(Frame::Hand(hand)) => hand,
+                _ => return Err(io::ErrorKind::InvalidData.into()),
+            };
+
+            println!("{}'s Hand:", player.name);
+            hand.pretty_print(false, true);
+            player.score += hand.score();
+        }
+
+        if &player.name == dealer {
+            let crib = match handle.read_frame()? {
+                Some(Frame::Hand(crib)) => crib,
+                _ => return Err(io::ErrorKind::InvalidData.into()),
+            };
+
+            println!("{}'s Crib:", player.name);
+            crib.pretty_print(false, true);
+            player.score += crib.score();
+        }
+    }
+
+    Ok(())
 }
 
 fn get_play(
@@ -69,10 +207,9 @@ fn get_play(
     playing_hand: &mut Hand,
 ) -> Result<(Option<Card>, bool), io::Error> {
     if player == name {
-        // Play
         if playing_hand.len() == 0 {
-            println!("Out of cards. Go!");
-            handle.send_frame(&Frame::GoEnd)?;
+            println!("No cards left. Go!");
+            handle.send_frame(&Frame::Play(None, true))?;
             return Ok((None, true));
         }
 
@@ -81,37 +218,34 @@ fn get_play(
                 .cards()
                 .to_vec()
                 .into_iter()
-                .filter(|card| card.score_value() < 31 - round_count)
+                .filter(|card| card.score_value() <= 31 - round_count)
                 .collect_vec(),
         );
 
         if playable_hand.len() == 0 {
             println!("No playable cards. Go!");
-            handle.send_frame(&Frame::Go)?;
+            handle.send_frame(&Frame::Play(None, false))?;
             return Ok((None, false));
-        } else {
-            let card = prompt_user_play(playable_hand)?;
-            println!("Playing: {}", card);
-            playing_hand.remove_card(&card);
-            handle.send_frame(&Frame::Card(card.clone()))?;
-            return Ok((Some(card), false));
         }
+
+        let card = prompt_user_play(playable_hand)?;
+        println!("Playing: {}", card);
+        playing_hand.remove_card(&card);
+        handle.send_frame(&Frame::Play(Some(card.clone()), playing_hand.len() == 0))?;
+        return Ok((Some(card), playing_hand.len() == 0));
     } else {
         // Wait for player
         println!("Waiting for {}...", player);
 
         match handle.read_frame()? {
-            Some(Frame::Card(card)) => {
-                println!("{} played {}", player, card);
-                return Ok((Some(card), false));
-            }
-            Some(Frame::Go) => {
-                println!("{} couldn't play. Go!", player);
-                return Ok((None, false));
-            }
-            Some(Frame::GoEnd) => {
-                println!("{} is out of cards. Go!", player);
-                return Ok((None, true));
+            Some(Frame::Play(card, out)) => {
+                if let Some(card) = &card {
+                    println!("{} played {}", player, card);
+                } else {
+                    println!("{} couldn't play. Go!", player);
+                }
+
+                return Ok((card, out));
             }
             _ => return Err(io::ErrorKind::InvalidData.into()),
         };
@@ -124,33 +258,28 @@ fn score_play(play_history: &Vec<Card>) -> u8 {
     // Check if play is a run
     let history_len = play_history.len();
     if history_len > 2 {
-        let run_length: usize = (0..history_len - 2)
+        let longest_run: Option<Vec<&Card>> = (0..history_len - 2)
             .collect::<Vec<usize>>()
             .into_iter()
-            .map(|n| {
-                (
-                    play_history
-                        .iter()
-                        .dropping(n)
-                        .map(|card| card.order())
-                        .sorted()
-                        .coalesce(|prev, curr| {
-                            if prev + 1 == curr {
-                                Ok(curr)
-                            } else {
-                                Err((prev, curr))
-                            }
-                        }),
-                    n,
-                )
+            .map(|num_drop| {
+                play_history
+                    .iter()
+                    .dropping(num_drop)
+                    .sorted_by(|a, b| a.order().cmp(&b.order()))
+                    .collect::<Vec<&Card>>()
             })
-            .map(|(run, n)| if run.count() == 1 { history_len - n } else { 0 })
-            .max()
-            .unwrap_or(0);
+            .filter(|sorted_subset| is_run(&sorted_subset))
+            .max_by(|a, b| a.len().cmp(&b.len()));
 
-        if run_length > 0 {
+        if let Some(run) = longest_run {
+            let run_length = run.len();
             score += run_length as u8;
-            println!("Run of {} for {}!", run_length, score);
+            println!(
+                "Run of {} for {}! ({})",
+                run_length,
+                score,
+                run.iter().join(", ")
+            );
         }
     }
 
@@ -193,55 +322,80 @@ fn score_play(play_history: &Vec<Card>) -> u8 {
     score
 }
 
+fn players_finished(player_status: &HashMap<String, bool>) -> bool {
+    player_status.values().all(|finished| *finished)
+}
+
 fn play(
     handle: &mut Handle,
-    hand: Hand,
-    mut players: Cycle<Iter<String>>,
+    hand: &Hand,
+    players: &mut Players,
     name: &String,
-    num_players: usize,
 ) -> Result<(), io::Error> {
     let mut playing_hand = Hand::from(hand.cards().to_vec());
     let mut play_history: Vec<Card> = Vec::new();
-    let mut finished_players: usize = 0;
     let mut round_count: u8 = 0;
     let mut go_count: usize = 0;
+    let num_players = players.len();
 
     println!("\nPlay!");
 
-    while finished_players < num_players {
+    let mut player_status: HashMap<String, bool> = players
+        .players
+        .iter()
+        .map(|player| (player.name.clone(), false))
+        .collect();
+
+    players.start_play();
+
+    loop {
         while round_count < 31 {
-            let player = players.next().unwrap();
+            let mut player = players.next_player();
             println!("\nCount: {}", round_count);
 
             if go_count == num_players - 1 {
-                println!("Go for 1!");
-                // Add one to player's score
+                println!("{} scored 1 for go!", player.name);
+                player.score += 1;
                 break;
             }
 
             let (played_card, player_out) =
-                get_play(handle, round_count, name, player, &mut playing_hand)?;
+                get_play(handle, round_count, name, &player.name, &mut playing_hand)?;
 
             if let Some(card) = played_card {
                 round_count += card.score_value();
                 play_history.push(card);
                 let score = score_play(&play_history);
-                // Add to players score
+                player.score += score;
             } else {
                 go_count += 1;
             }
 
             if player_out {
-                finished_players += 1;
+                let player_entry = player_status
+                    .get_mut(&player.name)
+                    .expect("Player not found in player status map");
+                if player_entry == &false {
+                    *player_entry = true;
+                }
+
+                if players_finished(&player_status) {
+                    println!("{} is last with cards! Go for 1!\n", player.name);
+                    player.score += 1;
+
+                    return Ok(());
+                }
             }
         }
+
+        println!("End of round!");
+        handle.send_frame(&Frame::RoundDone)?;
 
         play_history.clear();
         round_count = 0;
         go_count = 0;
+        players.decrement_player();
     }
-
-    Ok(())
 }
 
 fn prompt_user_play(mut playable_hand: Hand) -> Result<Card, io::Error> {

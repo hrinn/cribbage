@@ -3,9 +3,7 @@ use cribbage::frame::Frame;
 use cribbage::game::{Deck, Hand};
 use cribbage::handle::Handle;
 use std::io;
-use std::iter::Cycle;
 use std::net::TcpListener;
-use std::vec::IntoIter;
 
 #[derive(Parser)]
 struct ServerArgs {
@@ -17,7 +15,54 @@ struct ServerArgs {
 struct Player {
     handle: Handle,
     name: String,
-    score: u8,
+    finished: bool,
+}
+
+struct Players {
+    players: Vec<Player>,
+    dealer_index: usize,
+    player_index: usize,
+}
+
+impl Players {
+    pub fn from(players: Vec<Player>) -> Players {
+        Players {
+            players,
+            dealer_index: 0,
+            player_index: 0,
+        }
+    }
+
+    pub fn next_dealer(&mut self) -> &mut Player {
+        let len = self.players.len();
+        let dealer = self
+            .players
+            .get_mut(self.dealer_index)
+            .expect("No dealer found");
+        self.dealer_index = (self.dealer_index + 1) % len;
+        dealer
+    }
+
+    pub fn start_play(&mut self) {
+        self.player_index = self.dealer_index;
+        for player in self.players.iter_mut() {
+            player.finished = false;
+        }
+    }
+
+    pub fn next_player(&mut self) -> &mut Player {
+        let len = self.players.len();
+        let player = self
+            .players
+            .get_mut(self.player_index)
+            .expect("No dealer found");
+        self.player_index = (self.player_index + 1) % len;
+        player
+    }
+
+    pub fn players_finished(&self) -> bool {
+        self.players.iter().all(|player| player.finished)
+    }
 }
 
 fn main() {
@@ -28,7 +73,7 @@ fn main() {
     }
 }
 
-fn collect_players(listener: TcpListener, num_players: usize) -> Vec<Player> {
+fn collect_players(listener: TcpListener, num_players: usize) -> Players {
     let mut players: Vec<Player> = Vec::new();
 
     println!("Waiting for {} players...", num_players);
@@ -50,7 +95,7 @@ fn collect_players(listener: TcpListener, num_players: usize) -> Vec<Player> {
                 players.push(Player {
                     handle,
                     name,
-                    score: 0,
+                    finished: false,
                 });
             }
             Ok(None) => println!("{} disconnected", addr),
@@ -59,40 +104,40 @@ fn collect_players(listener: TcpListener, num_players: usize) -> Vec<Player> {
         }
     }
 
-    players
+    Players::from(players)
 }
 
-fn send_start(players: &mut Vec<Player>) -> Result<(), io::Error> {
-    let names: Vec<String> = players.iter().map(|player| player.name.clone()).collect();
+fn send_start(players: &mut Players) -> Result<(), io::Error> {
+    let names: Vec<String> = players
+        .players
+        .iter()
+        .map(|player| player.name.clone())
+        .collect();
 
     let start_frame = Frame::Start(names);
 
-    for player in players {
+    for player in &mut players.players {
         player.handle.send_frame(&start_frame)?;
     }
 
     Ok(())
 }
 
-fn get_highest_score(players: &Vec<Player>) -> u8 {
-    players.iter().map(|player| player.score).max().unwrap()
-}
-
-fn deal(deck: &mut Deck, players: &mut Vec<Player>, num_players: usize) -> Result<Hand, io::Error> {
+fn deal(deck: &mut Deck, players: &mut Players, num_players: usize) -> Result<Hand, io::Error> {
     let num_deal = 8 - num_players; // 2 players get 6, 3 players get 5
     let mut crib = Hand::new();
 
     deck.shuffle();
 
     // Send each hand
-    for player in players.iter_mut() {
+    for player in players.players.iter_mut() {
         let hand = deck.deal(num_deal);
         println!("Dealing hand to {} ({})", player.name, hand);
         player.handle.send_frame(&Frame::Hand(hand))?;
     }
 
     // Get each discard
-    for player in players.iter_mut() {
+    for player in players.players.iter_mut() {
         let mut discard_hand = match player.handle.read_frame()? {
             Some(Frame::Hand(discard_hand)) => discard_hand,
             _ => return Err(io::ErrorKind::InvalidData.into()),
@@ -111,65 +156,135 @@ fn deal(deck: &mut Deck, players: &mut Vec<Player>, num_players: usize) -> Resul
     let magic_frame = Frame::Card(magic.to_owned());
 
     // Send magic card to clients
-    for player in players.iter_mut() {
+    for player in players.players.iter_mut() {
         player.handle.send_frame(&magic_frame)?;
     }
 
     Ok(crib)
 }
 
-fn get_play(players: &mut Vec<Player>, player_index: usize) -> Result<Frame, io::Error> {
-    let player = players.get_mut(player_index).unwrap();
-
+fn get_play(player: &mut Player) -> Result<Frame, io::Error> {
     println!("Waiting for play from {}", player.name);
 
-    match player.handle.read_frame()? {
-        Some(frame) => Ok(frame),
-        None => Err(io::ErrorKind::InvalidData.into()),
-    }
+    let frame = match player.handle.read_frame()? {
+        Some(Frame::Play(card, out)) => {
+            if out {
+                player.finished = true;
+            }
+            Frame::Play(card, out)
+        },
+        Some(Frame::RoundDone) => Frame::RoundDone,
+        _ => return Err(io::ErrorKind::InvalidData.into()),
+    };
+    Ok(frame)
 }
 
-fn play(
-    players: &mut Vec<Player>,
-    mut player_index: Cycle<IntoIter<usize>>,
-) -> Result<(), io::Error> {
-    loop {
-        let current_player_index = player_index.next().unwrap();
+fn play(players: &mut Players) -> Result<(), io::Error> {
+    players.start_play();
 
-        // Wait for play from player
-        let frame = get_play(players, current_player_index)?;
+    while !players.players_finished() {
+        let player = players.next_player();
 
-        // Send play to other players
-        for i in 0..players.len() {
-            if i == current_player_index {
-                continue;
-            }
+        let frame = if player.finished {
+            Frame::Play(None, true)
+        } else {
+            get_play(player)?
+        };
 
-            players.get_mut(i).unwrap().handle.send_frame(&frame)?;
+        let name = player.name.clone();
+
+        if let Frame::RoundDone = frame {
+            println!("Client notified server round is done.");
+            println!("Cleaning up handles of other clients... ");
+            clear_handles(players, &name)?;
+        } else {
+            forward_frame(players, frame, &name)?;
         }
     }
+
+    Ok(())
 }
 
-fn game_loop(players: &mut Vec<Player>, num_players: usize) -> Result<&Player, io::Error> {
-    let mut deck = Deck::new();
-    // let mut dealer_iter = players.iter().cycle();
-    let indices: Vec<usize> = (0..num_players).collect();
-    let mut dealer_index = indices.into_iter().cycle();
+fn clear_handles(players: &mut Players, name: &String) -> Result<(), io::Error> {
+    for player in &mut players.players {
+        if name == &player.name {
+            continue;
+        }
 
-    while get_highest_score(&players) < 121 {
-        let dealer = players.get(dealer_index.next().unwrap()).unwrap();
+        match player.handle.read_frame()? {
+            Some(Frame::RoundDone) => (),
+            _ => panic!("Received frame other than RoundDone when clearing handles!"),
+        }
+    }
+
+    Ok(())
+}
+
+fn forward_frame(players: &mut Players, frame: Frame, name: &String) -> Result<(), io::Error> {
+    for player in &mut players.players {
+        if name == &player.name {
+            continue;
+        }
+
+        player.handle.send_frame(&frame)?;
+    }
+
+    Ok(())
+}
+
+fn show(players: &mut Players, crib: Hand) -> Result<Vec<Hand>, io::Error> {
+    let mut hands = Vec::new();
+
+    for _ in 0..players.players.len() {
+        let player = players.next_player();
+
+        println!("Waiting for hand from {}...", player.name);
+        let hand = match player.handle.read_frame()? {
+            Some(Frame::Hand(hand)) => hand,
+            _ => return Err(io::ErrorKind::InvalidData.into()),
+        };
+
+        let name = player.name.clone();
+        drop(player);
+
+        // Send hand to other players
+        forward_frame(players, Frame::Hand(hand.clone()), &name)?;
+
+        // Add hand to list
+        hands.push(hand);
+    }
+
+    println!("Broadcasting crib!");
+    let crib_frame = Frame::Hand(crib);
+
+    for player in &mut players.players {
+        player.handle.send_frame(&crib_frame)?;
+    }
+
+    Ok(hands)
+}
+
+fn game_loop(players: &mut Players, num_players: usize) -> Result<(), io::Error> {
+    let mut deck = Deck::new();
+
+    loop {
+        let dealer = players.next_dealer();
         println!("Dealer = {}", dealer.name);
 
         // Deal
         let crib = deal(&mut deck, players, num_players)?;
 
         // Play
-        play(players, dealer_index.clone())?
+        play(players)?;
 
         // Show
-    }
+        let hands = show(players, crib)?;
 
-    Ok(players.iter().max_by_key(|p| p.score).unwrap())
+        // Recover deck
+        for hand in hands {
+            deck.rejoin(hand);
+        }
+    }
 }
 
 fn server(args: ServerArgs) -> Result<(), io::Error> {
@@ -183,7 +298,7 @@ fn server(args: ServerArgs) -> Result<(), io::Error> {
 
     send_start(&mut players)?;
 
-    let winner = game_loop(&mut players, args.num_players)?;
+    game_loop(&mut players, args.num_players)?;
 
     Ok(())
 }
