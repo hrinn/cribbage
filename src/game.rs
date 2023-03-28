@@ -147,8 +147,8 @@ pub struct Hand {
 }
 
 impl Hand {
-    pub fn from(cards: Vec<Card>) -> Hand {
-        Hand { cards, magic: None }
+    pub fn from(cards: Vec<Card>, magic: Option<Card>) -> Hand {
+        Hand { cards, magic }
     }
 
     pub fn new() -> Hand {
@@ -199,6 +199,8 @@ impl Hand {
         if jack.len() == 1 {
             score += 1;
 
+            std::thread::sleep(std::time::Duration::from_millis(250));
+
             println!(
                 "Nob for {score}! ({}, {})",
                 jack.first().unwrap(),
@@ -220,6 +222,7 @@ impl Hand {
             if perm.len() == 2 && (perm[0].value == perm[1].value) {
                 score += 2;
 
+                std::thread::sleep(std::time::Duration::from_millis(250));
                 println!("Pair for {score}! ({}, {})", perm[0], perm[1]);
             }
 
@@ -227,6 +230,7 @@ impl Hand {
             if perm.iter().map(|card| card.score_value()).sum::<u8>() == 15 {
                 score += 2;
 
+                std::thread::sleep(std::time::Duration::from_millis(250));
                 println!("Fifteen for {score}! ({})", perm.iter().join(", "));
             }
 
@@ -246,7 +250,7 @@ impl Hand {
 
                 if run {
                     score += perm.len() as u8;
-
+                std::thread::sleep(std::time::Duration::from_millis(250));
                     println!("Run for {score}! ({})", perm.iter().join(", "));
                 }
             }
@@ -328,6 +332,10 @@ impl Hand {
         for line in lines {
             println!("{}", line);
         }
+    }
+
+    pub fn magic(&self) -> Option<&Card> {
+        self.magic.as_ref()
     }
 }
 

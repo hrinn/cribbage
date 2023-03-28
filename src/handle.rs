@@ -50,6 +50,14 @@ impl Handle {
             Frame::Hand(hand) => {
                 buffer.put_u8(0x3);
 
+                if let Some(magic) = hand.magic() {
+                    buffer.put_u8(0x1);
+                    buffer.put(magic.to_net_name().as_bytes());
+                } else {
+                    buffer.put_u8(0x0);
+                    buffer.put_slice(b"00");
+                }
+
                 for card in hand.cards() {
                     buffer.put(format!("{},", card.to_net_name()).as_bytes());
                 }
@@ -95,14 +103,23 @@ fn parse_frame(buffer: &str) -> Result<Option<Frame>, io::Error> {
                 .map(|str| String::from(str))
                 .collect(),
         ))),
-        0x3 => Ok(Some(Frame::Hand(Hand::from(
-            buffer[1..]
-                .strip_suffix(',')
-                .unwrap()
-                .split(',')
-                .map(|str| Card::from_net_name(str.to_string()))
-                .collect(),
-        )))),
+        0x3 => {
+            let magic = if buffer[1..2].as_bytes().get(0).unwrap() == &0x1 {
+                Some(Card::from_net_name(buffer[2..4].to_string()))
+            } else {
+                None
+            };
+
+            Ok(Some(Frame::Hand(Hand::from(
+                buffer[4..]
+                    .strip_suffix(',')
+                    .unwrap()
+                    .split(',')
+                    .map(|str| Card::from_net_name(str.to_string()))
+                    .collect(),
+                magic,
+            ))))
+        }
         0x4 => Ok(Some(Frame::Card(Card::from_net_name(
             buffer[1..].to_string(),
         )))),
@@ -116,7 +133,7 @@ fn parse_frame(buffer: &str) -> Result<Option<Frame>, io::Error> {
             let out = buffer[1..2].as_bytes().get(0).unwrap() == &0x1;
 
             Ok(Some(Frame::Play(card, out)))
-        },
+        }
         0x6 => Ok(Some(Frame::RoundDone)),
         _ => Err(io::ErrorKind::InvalidData.into()),
     }

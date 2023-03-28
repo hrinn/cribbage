@@ -60,6 +60,11 @@ impl Players {
         player
     }
 
+    pub fn decrement_player(&mut self) {
+        let len = self.players.len();
+        self.player_index = (self.player_index + len - 1) % len;
+    }
+
     pub fn players_finished(&self) -> bool {
         self.players.iter().all(|player| player.finished)
     }
@@ -127,6 +132,7 @@ fn deal(deck: &mut Deck, players: &mut Players, num_players: usize) -> Result<Ha
     let num_deal = 8 - num_players; // 2 players get 6, 3 players get 5
     let mut crib = Hand::new();
 
+    println!("Shuffling deck...");
     deck.shuffle();
 
     // Send each hand
@@ -153,6 +159,7 @@ fn deal(deck: &mut Deck, players: &mut Players, num_players: usize) -> Result<Ha
     // Draw magic card
     let magic = deck.draw_magic();
     println!("Drew magic card: {}", magic);
+    crib.set_magic(magic.clone());
     let magic_frame = Frame::Card(magic.to_owned());
 
     // Send magic card to clients
@@ -172,7 +179,7 @@ fn get_play(player: &mut Player) -> Result<Frame, io::Error> {
                 player.finished = true;
             }
             Frame::Play(card, out)
-        },
+        }
         Some(Frame::RoundDone) => Frame::RoundDone,
         _ => return Err(io::ErrorKind::InvalidData.into()),
     };
@@ -181,6 +188,7 @@ fn get_play(player: &mut Player) -> Result<Frame, io::Error> {
 
 fn play(players: &mut Players) -> Result<(), io::Error> {
     players.start_play();
+    println!("Starting play");
 
     while !players.players_finished() {
         let player = players.next_player();
@@ -195,25 +203,10 @@ fn play(players: &mut Players) -> Result<(), io::Error> {
 
         if let Frame::RoundDone = frame {
             println!("Client notified server round is done.");
-            println!("Cleaning up handles of other clients... ");
-            clear_handles(players, &name)?;
+            players.decrement_player();
+            players.decrement_player();
         } else {
             forward_frame(players, frame, &name)?;
-        }
-    }
-
-    Ok(())
-}
-
-fn clear_handles(players: &mut Players, name: &String) -> Result<(), io::Error> {
-    for player in &mut players.players {
-        if name == &player.name {
-            continue;
-        }
-
-        match player.handle.read_frame()? {
-            Some(Frame::RoundDone) => (),
-            _ => panic!("Received frame other than RoundDone when clearing handles!"),
         }
     }
 
@@ -234,6 +227,8 @@ fn forward_frame(players: &mut Players, frame: Frame, name: &String) -> Result<(
 
 fn show(players: &mut Players, crib: Hand) -> Result<Vec<Hand>, io::Error> {
     let mut hands = Vec::new();
+    players.start_play();
+    println!("Starting show");
 
     for _ in 0..players.players.len() {
         let player = players.next_player();
@@ -248,13 +243,14 @@ fn show(players: &mut Players, crib: Hand) -> Result<Vec<Hand>, io::Error> {
         drop(player);
 
         // Send hand to other players
+        println!("Forwarding hand to other players...");
         forward_frame(players, Frame::Hand(hand.clone()), &name)?;
 
         // Add hand to list
         hands.push(hand);
     }
 
-    println!("Broadcasting crib!");
+    println!("Broadcasting crib...");
     let crib_frame = Frame::Hand(crib);
 
     for player in &mut players.players {
@@ -278,12 +274,16 @@ fn game_loop(players: &mut Players, num_players: usize) -> Result<(), io::Error>
         play(players)?;
 
         // Show
-        let hands = show(players, crib)?;
+        let hands = show(players, crib.clone())?;
 
         // Recover deck
         for hand in hands {
+            println!("Recovered hand: {}", hand);
             deck.rejoin(hand);
         }
+
+        println!("Recovered crib: {}", crib);
+        deck.rejoin(crib);
     }
 }
 
