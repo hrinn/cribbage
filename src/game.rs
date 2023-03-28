@@ -188,6 +188,8 @@ impl Hand {
     pub fn score(&self) -> u8 {
         let mut score: u8 = 0;
 
+        let mut runs: Vec<Vec<&Card>> = Vec::new();
+
         // Nob
         let jack: Vec<&Card> = self
             .cards
@@ -197,10 +199,8 @@ impl Hand {
             .collect();
 
         if jack.len() == 1 {
-            score += 1;
-
             std::thread::sleep(std::time::Duration::from_millis(250));
-
+            score += 1;
             println!(
                 "Nob for {score}! ({}, {})",
                 jack.first().unwrap(),
@@ -220,40 +220,37 @@ impl Hand {
         {
             // Pairs
             if perm.len() == 2 && (perm[0].value == perm[1].value) {
-                score += 2;
-
                 std::thread::sleep(std::time::Duration::from_millis(250));
+                score += 2;
                 println!("Pair for {score}! ({}, {})", perm[0], perm[1]);
             }
 
             // Fifteens
             if perm.iter().map(|card| card.score_value()).sum::<u8>() == 15 {
-                score += 2;
-
                 std::thread::sleep(std::time::Duration::from_millis(250));
+                score += 2;
                 println!("Fifteen for {score}! ({})", perm.iter().join(", "));
             }
 
             // Runs
-            if perm.len() >= 3 {
-                let mut run = true;
-                let mut last = perm[0].order();
-
-                for card in perm.iter().skip(1) {
-                    if card.order() != last + 1 {
-                        run = false;
-                        break;
-                    }
-
-                    last = card.order();
-                }
-
-                if run {
-                    score += perm.len() as u8;
-                std::thread::sleep(std::time::Duration::from_millis(250));
-                    println!("Run for {score}! ({})", perm.iter().join(", "));
-                }
+            if perm.len() >= 3 && is_run(&perm) {
+                runs.push(perm);
             }
+        }
+
+        // Filter out runs that are subsets of other runs, e.g. 4,5,6,7 and 5,6,7
+        let runs_clone = runs.clone();
+        runs.retain(|run| {
+            !runs_clone
+                .iter()
+                .any(|other| run.len() < other.len() && run.iter().all(|card| other.contains(card)))
+        });
+
+        // Score runs
+        for run in runs {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            score += run.len() as u8;
+            println!("Run for {score}! ({})", run.iter().join(", "));
         }
 
         score

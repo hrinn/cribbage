@@ -200,7 +200,7 @@ fn show(
             println!("\nYour Hand + Magic Card:");
             hand.pretty_print(false, true);
             player.score += hand.score();
-            
+
             std::thread::sleep(std::time::Duration::from_secs(5));
             handle.send_frame(&Frame::Hand(hand.clone()))?;
         } else {
