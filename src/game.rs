@@ -1,6 +1,10 @@
 use itertools::Itertools;
-use rand::{seq::SliceRandom, thread_rng};
+use rand::{SeedableRng, Rng};
+use rand::seq::SliceRandom;
+use rand::rngs::SmallRng;
+use std::collections::hash_map::DefaultHasher;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub enum Suit {
@@ -113,15 +117,31 @@ impl Deck {
         Deck { cards }
     }
 
-    pub fn shuffle(&mut self) {
+    pub fn shuffle(&mut self, seed: String) {
         assert!(
             self.cards.len() == 52,
             "Tried to shuffle with {} cards!",
             self.cards.len()
         );
 
-        let mut rng = thread_rng();
+        print!("Shuffling deck with seed '{}'", seed);
+        let s = Deck::noisy_hash_seed(seed);
+        println!(" ({})", s);
+        let mut rng = SmallRng::seed_from_u64(s);
         self.cards.shuffle(&mut rng);
+    }
+
+    fn noisy_hash_seed(seed: String) -> u64 {
+        let mut s = DefaultHasher::new();
+        let noise: String = rand::thread_rng()
+            .sample_iter(&rand::distributions::Alphanumeric)
+            .take(16)
+            .map(char::from)
+            .collect();
+
+        seed.hash(&mut s);
+        noise.hash(&mut s);
+        s.finish()
     }
 
     pub fn deal(&mut self, num: usize) -> Hand {
@@ -199,7 +219,6 @@ impl Hand {
             .collect();
 
         if jack.len() == 1 {
-            std::thread::sleep(std::time::Duration::from_millis(250));
             score += 1;
             println!(
                 "Nob for {score}! ({}, {})",
@@ -220,14 +239,12 @@ impl Hand {
         {
             // Pairs
             if perm.len() == 2 && (perm[0].value == perm[1].value) {
-                std::thread::sleep(std::time::Duration::from_millis(250));
                 score += 2;
                 println!("Pair for {score}! ({}, {})", perm[0], perm[1]);
             }
 
             // Fifteens
             if perm.iter().map(|card| card.score_value()).sum::<u8>() == 15 {
-                std::thread::sleep(std::time::Duration::from_millis(250));
                 score += 2;
                 println!("Fifteen for {score}! ({})", perm.iter().join(", "));
             }
@@ -248,7 +265,6 @@ impl Hand {
 
         // Score runs
         for run in runs {
-            std::thread::sleep(std::time::Duration::from_millis(250));
             score += run.len() as u8;
             println!("Run for {score}! ({})", run.iter().join(", "));
         }

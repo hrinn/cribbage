@@ -10,4 +10,4 @@ description = "A program to play Cribbage on the command line"
 bytes = "1.4.0"
 clap = { version = "4.1.9", features = ["derive"] }
 itertools = "0.10.5"
-rand = "0.8.5"
+rand = { version = "0.8.5", features = ["small_rng"] }

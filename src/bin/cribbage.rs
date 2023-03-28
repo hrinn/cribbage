@@ -145,7 +145,8 @@ fn cribbage(args: ClientArgs) -> Result<(), io::Error> {
 
     let names = match handle.read_frame()? {
         Some(Frame::Start(names)) => names,
-        _ => return Err(io::ErrorKind::InvalidData.into()),
+        Some(_) => return Err(io::ErrorKind::InvalidData.into()),
+        None => return Err(io::ErrorKind::UnexpectedEof.into()),
     };
 
     println!("Game starting with players: {:?}", names);
@@ -157,12 +158,30 @@ fn cribbage(args: ClientArgs) -> Result<(), io::Error> {
     Ok(())
 }
 
+fn send_seed(handle: &mut Handle) -> Result<(), io::Error> {
+    let mut seed = String::new();
+
+    println!("Provide seed for random shuffle:");
+    io::stdin().read_line(&mut seed)?;
+    let seed = String::from(seed.trim());
+
+    handle.send_frame(&Frame::Seed(seed))?;
+
+    Ok(())
+}
+
 fn game_loop(handle: &mut Handle, mut players: Players, name: String) -> Result<(), io::Error> {
     let num_players = players.len();
 
     while players.max_score() < 121 {
         let dealer = players.next_dealer();
         println!("Dealer: {}", dealer);
+
+        if dealer == name {
+            send_seed(handle)?;
+        } else {
+            println!("Waiting for shuffle...");
+        }
 
         let hand = get_hand(handle, num_players)?;
 
@@ -172,8 +191,9 @@ fn game_loop(handle: &mut Handle, mut players: Players, name: String) -> Result<
 
         println!("\nScores:");
         players.print_scores();
-        std::thread::sleep(std::time::Duration::from_secs(10));
         println!("\n");
+
+        std::thread::sleep(std::time::Duration::from_secs(15));
     }
 
     let winner = players.player_with_max_score();
@@ -201,16 +221,15 @@ fn show(
             hand.pretty_print(false, true);
             player.score += hand.score();
 
-            std::thread::sleep(std::time::Duration::from_secs(5));
             handle.send_frame(&Frame::Hand(hand.clone()))?;
         } else {
             // Receive hand from server and score
             println!("\n{}'s Hand + Magic Card:", player.name);
 
-            std::thread::sleep(std::time::Duration::from_secs(5));
             let hand = match handle.read_frame()? {
                 Some(Frame::Hand(hand)) => hand,
-                _ => return Err(io::ErrorKind::InvalidData.into()),
+                Some(_) => return Err(io::ErrorKind::InvalidData.into()),
+                None => return Err(io::ErrorKind::UnexpectedEof.into()),
             };
 
             hand.pretty_print(false, true);
@@ -222,10 +241,10 @@ fn show(
 
             let crib = match handle.read_frame()? {
                 Some(Frame::Hand(crib)) => crib,
-                _ => return Err(io::ErrorKind::InvalidData.into()),
+                Some(_) => return Err(io::ErrorKind::InvalidData.into()),
+                None => return Err(io::ErrorKind::UnexpectedEof.into()),
             };
 
-            std::thread::sleep(std::time::Duration::from_secs(5));
             crib.pretty_print(false, true);
             player.score += crib.score();
         }
@@ -283,7 +302,8 @@ fn get_play(
 
                 return Ok((card, out));
             }
-            _ => return Err(io::ErrorKind::InvalidData.into()),
+            Some(_) => return Err(io::ErrorKind::InvalidData.into()),
+            None => return Err(io::ErrorKind::UnexpectedEof.into()),
         };
     }
 }
@@ -492,7 +512,8 @@ fn get_hand(handle: &mut Handle, num_players: usize) -> Result<Hand, io::Error> 
     // Wait for hand
     let mut hand = match handle.read_frame()? {
         Some(Frame::Hand(hand)) => hand,
-        _ => return Err(io::ErrorKind::InvalidData.into()),
+        Some(_) => return Err(io::ErrorKind::InvalidData.into()),
+        None => return Err(io::ErrorKind::UnexpectedEof.into()),
     };
 
     println!("\nHand:");
@@ -517,7 +538,8 @@ fn get_hand(handle: &mut Handle, num_players: usize) -> Result<Hand, io::Error> 
     // Wait for magic card
     let magic = match handle.read_frame()? {
         Some(Frame::Card(magic)) => magic,
-        _ => return Err(io::ErrorKind::InvalidData.into()),
+        Some(_) => return Err(io::ErrorKind::InvalidData.into()),
+        None => return Err(io::ErrorKind::UnexpectedEof.into()),
     };
 
     println!("Magic card dealt! ({})", magic);

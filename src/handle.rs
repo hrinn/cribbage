@@ -78,6 +78,10 @@ impl Handle {
             Frame::RoundDone => {
                 buffer.put_u8(0x6);
             }
+            Frame::Seed(seed) => {
+                buffer.put_u8(0x7);
+                buffer.put(seed.as_bytes());
+            }
         }
 
         buffer.put_slice(b"\n");
@@ -135,6 +139,7 @@ fn parse_frame(buffer: &str) -> Result<Option<Frame>, io::Error> {
             Ok(Some(Frame::Play(card, out)))
         }
         0x6 => Ok(Some(Frame::RoundDone)),
+        0x7 => Ok(Some(Frame::Seed(buffer[1..].to_string()))),
         _ => Err(io::ErrorKind::InvalidData.into()),
     }
 }

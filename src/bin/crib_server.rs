@@ -128,12 +128,11 @@ fn send_start(players: &mut Players) -> Result<(), io::Error> {
     Ok(())
 }
 
-fn deal(deck: &mut Deck, players: &mut Players, num_players: usize) -> Result<Hand, io::Error> {
+fn deal(deck: &mut Deck, players: &mut Players, num_players: usize, seed: String) -> Result<Hand, io::Error> {
     let num_deal = 8 - num_players; // 2 players get 6, 3 players get 5
     let mut crib = Hand::new();
 
-    println!("Shuffling deck...");
-    deck.shuffle();
+    deck.shuffle(seed);
 
     // Send each hand
     for player in players.players.iter_mut() {
@@ -146,7 +145,7 @@ fn deal(deck: &mut Deck, players: &mut Players, num_players: usize) -> Result<Ha
     for player in players.players.iter_mut() {
         let mut discard_hand = match player.handle.read_frame()? {
             Some(Frame::Hand(discard_hand)) => discard_hand,
-            _ => return Err(io::ErrorKind::InvalidData.into()),
+            _ => panic!("Bad discard hand from {}", player.name),
         };
 
         println!("Received discard from {} ({})", player.name, discard_hand);
@@ -181,7 +180,8 @@ fn get_play(player: &mut Player) -> Result<Frame, io::Error> {
             Frame::Play(card, out)
         }
         Some(Frame::RoundDone) => Frame::RoundDone,
-        _ => return Err(io::ErrorKind::InvalidData.into()),
+        Some(_) => return Err(io::ErrorKind::InvalidData.into()),
+        None => return Err(io::ErrorKind::UnexpectedEof.into()),
     };
     Ok(frame)
 }
@@ -236,7 +236,8 @@ fn show(players: &mut Players, crib: Hand) -> Result<Vec<Hand>, io::Error> {
         println!("Waiting for hand from {}...", player.name);
         let hand = match player.handle.read_frame()? {
             Some(Frame::Hand(hand)) => hand,
-            _ => return Err(io::ErrorKind::InvalidData.into()),
+            Some(_) => return Err(io::ErrorKind::InvalidData.into()),
+            None => return Err(io::ErrorKind::UnexpectedEof.into()),
         };
 
         let name = player.name.clone();
@@ -260,6 +261,17 @@ fn show(players: &mut Players, crib: Hand) -> Result<Vec<Hand>, io::Error> {
     Ok(hands)
 }
 
+fn get_seed(dealer: &mut Player) -> Result<String, io::Error> {
+    println!("Getting seed from {}...", dealer.name);
+    let seed = match dealer.handle.read_frame()? {
+        Some(Frame::Seed(seed)) => seed,
+        Some(_) => return Err(io::ErrorKind::InvalidData.into()),
+        None => return Err(io::ErrorKind::UnexpectedEof.into()),
+    };
+
+    Ok(seed)
+}
+
 fn game_loop(players: &mut Players, num_players: usize) -> Result<(), io::Error> {
     let mut deck = Deck::new();
 
@@ -267,8 +279,11 @@ fn game_loop(players: &mut Players, num_players: usize) -> Result<(), io::Error>
         let dealer = players.next_dealer();
         println!("Dealer = {}", dealer.name);
 
+        // Get seed from dealer
+        let seed = get_seed(dealer)?;
+
         // Deal
-        let crib = deal(&mut deck, players, num_players)?;
+        let crib = deal(&mut deck, players, num_players, seed)?;
 
         // Play
         play(players)?;
