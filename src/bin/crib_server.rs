@@ -128,7 +128,12 @@ fn send_start(players: &mut Players) -> Result<(), io::Error> {
     Ok(())
 }
 
-fn deal(deck: &mut Deck, players: &mut Players, num_players: usize, seed: String) -> Result<Hand, io::Error> {
+fn deal(
+    deck: &mut Deck,
+    players: &mut Players,
+    num_players: usize,
+    seed: String,
+) -> Result<Hand, io::Error> {
     let num_deal = 8 - num_players; // 2 players get 6, 3 players get 5
     let mut crib = Hand::new();
 
@@ -193,11 +198,7 @@ fn play(players: &mut Players) -> Result<(), io::Error> {
     while !players.players_finished() {
         let player = players.next_player();
 
-        let frame = if player.finished {
-            Frame::Play(None, true)
-        } else {
-            get_play(player)?
-        };
+        let frame = get_play(player)?;
 
         let name = player.name.clone();
 
@@ -236,6 +237,10 @@ fn show(players: &mut Players, crib: Hand) -> Result<Vec<Hand>, io::Error> {
         println!("Waiting for hand from {}...", player.name);
         let hand = match player.handle.read_frame()? {
             Some(Frame::Hand(hand)) => hand,
+            Some(Frame::Play(card, bool)) => panic!(
+                "Got play {:?} {:?} from {} instead of hand!",
+                card, bool, player.name
+            ),
             Some(_) => return Err(io::ErrorKind::InvalidData.into()),
             None => return Err(io::ErrorKind::UnexpectedEof.into()),
         };

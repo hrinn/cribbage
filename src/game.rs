@@ -1,12 +1,12 @@
 use itertools::Itertools;
-use rand::{SeedableRng, Rng};
-use rand::seq::SliceRandom;
 use rand::rngs::SmallRng;
+use rand::seq::SliceRandom;
+use rand::{Rng, SeedableRng};
 use std::collections::hash_map::DefaultHasher;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum Suit {
     Spades,
     Hearts,
@@ -14,7 +14,7 @@ pub enum Suit {
     Clubs,
 }
 
-#[derive(Clone, Eq, PartialEq, Hash)]
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Card {
     pub value: char,
     pub suit: Suit,
@@ -266,7 +266,11 @@ impl Hand {
         // Score runs
         for run in runs {
             score += run.len() as u8;
-            println!("Run for {score}! ({})", run.iter().join(", "));
+            println!(
+                "Run of {} for {score}! ({})",
+                run.len(),
+                run.iter().join(", ")
+            );
         }
 
         score

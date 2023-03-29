@@ -17,6 +17,20 @@ struct ClientArgs {
 struct Player {
     name: String,
     score: u8,
+    play_score: u8,
+    show_score: u8,
+}
+
+impl Player {
+    pub fn add_play_score(&mut self, score: u8) {
+        self.play_score += score;
+        self.score = min(self.score + score, 121);
+    }
+
+    pub fn add_show_score(&mut self, score: u8) {
+        self.show_score += score;
+        self.score = min(self.score + score, 121);
+    }
 }
 
 struct Players {
@@ -30,10 +44,22 @@ impl Players {
         Players {
             players: names
                 .into_iter()
-                .map(|name| Player { name, score: 0 })
+                .map(|name| Player {
+                    name,
+                    score: 0,
+                    play_score: 0,
+                    show_score: 0,
+                })
                 .collect_vec(),
             dealer_index: 0,
             player_index: 0,
+        }
+    }
+
+    pub fn reset_round_scores(&mut self) {
+        for player in &mut self.players {
+            player.play_score = 0;
+            player.show_score = 0;
         }
     }
 
@@ -68,7 +94,10 @@ impl Players {
                 }
             }
 
-            println!(" ({}) {}", player.score, player.name);
+            println!(
+                " ({}) {} (+{}p +{}s)",
+                player.score, player.name, player.play_score, player.show_score
+            );
         }
     }
 
@@ -174,6 +203,8 @@ fn game_loop(handle: &mut Handle, mut players: Players, name: String) -> Result<
     let num_players = players.len();
 
     while players.max_score() < 121 {
+        players.reset_round_scores();
+
         let dealer = players.next_dealer();
         println!("Dealer: {}", dealer);
 
@@ -189,11 +220,12 @@ fn game_loop(handle: &mut Handle, mut players: Players, name: String) -> Result<
 
         show(handle, hand, &mut players, &name, &dealer)?;
 
+        std::thread::sleep(std::time::Duration::from_secs(5));
         println!("\nScores:");
         players.print_scores();
         println!("\n");
 
-        std::thread::sleep(std::time::Duration::from_secs(15));
+        std::thread::sleep(std::time::Duration::from_secs(10));
     }
 
     let winner = players.player_with_max_score();
@@ -219,34 +251,35 @@ fn show(
         if &player.name == name {
             println!("\nYour Hand + Magic Card:");
             hand.pretty_print(false, true);
-            player.score += hand.score();
-
+            player.add_show_score(hand.score());
             handle.send_frame(&Frame::Hand(hand.clone()))?;
         } else {
             // Receive hand from server and score
-            println!("\n{}'s Hand + Magic Card:", player.name);
-
             let hand = match handle.read_frame()? {
                 Some(Frame::Hand(hand)) => hand,
                 Some(_) => return Err(io::ErrorKind::InvalidData.into()),
                 None => return Err(io::ErrorKind::UnexpectedEof.into()),
             };
 
+            std::thread::sleep(std::time::Duration::from_secs(5));
+
+            println!("\n{}'s Hand + Magic Card:", player.name);
             hand.pretty_print(false, true);
-            player.score += hand.score();
+            player.add_show_score(hand.score());
         }
 
         if &player.name == dealer {
-            println!("\n{}'s Crib + Magic Card:", player.name);
-
             let crib = match handle.read_frame()? {
                 Some(Frame::Hand(crib)) => crib,
                 Some(_) => return Err(io::ErrorKind::InvalidData.into()),
                 None => return Err(io::ErrorKind::UnexpectedEof.into()),
             };
 
+            std::thread::sleep(std::time::Duration::from_secs(5));
+
+            println!("\n{}'s Crib + Magic Card:", player.name);
             crib.pretty_print(false, true);
-            player.score += crib.score();
+            player.add_show_score(crib.score());
         }
     }
 
@@ -406,7 +439,7 @@ fn play(
 
     loop {
         while round_count < 31 {
-            let mut player = players.next_player();
+            let player = players.next_player();
             println!("\nCount: {}", round_count);
 
             let (played_card, player_out) =
@@ -416,7 +449,7 @@ fn play(
                 round_count += card.score_value();
                 play_history.push(card);
                 let score = score_play(&play_history);
-                player.score += score;
+                player.add_play_score(score);
                 go_count = 0;
             } else {
                 go_count += 1;
@@ -424,7 +457,7 @@ fn play(
 
             if go_count == num_players {
                 println!("{} scored 1 for go!", player.name);
-                player.score += 1;
+                player.add_play_score(1);
                 break;
             }
 
@@ -438,7 +471,7 @@ fn play(
 
                 if players_finished(&player_status) {
                     println!("{} is last with cards! Go for 1!\n", player.name);
-                    player.score += 1;
+                    player.add_play_score(1);
 
                     return Ok(());
                 }
