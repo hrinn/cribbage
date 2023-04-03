@@ -504,9 +504,11 @@ fn play(
                 }
 
                 if players_finished(&player_status) {
-                    println!("{} is last with cards! Go for 1!\n", player.name);
-                    player.add_play_score(1);
-
+                    if round_count < 31 {
+                        println!("{} is last with cards! Go for 1!\n", player.name);
+                        player.add_play_score(1);
+                    }
+                    
                     return Ok(());
                 }
             }
