@@ -215,8 +215,6 @@ fn send_seed(handle: &mut Handle) -> Result<(), io::Error> {
 }
 
 fn game_loop(handle: &mut Handle, mut players: Players, name: String) -> Result<(), io::Error> {
-    let num_players = players.len();
-
     while players.max_score() < 121 {
         let dealer = players.next_dealer();
         println!("Dealer: {}", dealer);
@@ -227,7 +225,7 @@ fn game_loop(handle: &mut Handle, mut players: Players, name: String) -> Result<
             println!("Waiting for shuffle...");
         }
 
-        let hand = get_hand(handle, num_players)?;
+        let hand = get_hand(handle, &mut players)?;
 
         play(handle, &hand, &mut players, &name)?;
 
@@ -577,7 +575,7 @@ fn prompt_user_discard(num: usize, max_index: u8) -> Result<Vec<u8>, io::Error> 
     }
 }
 
-fn get_hand(handle: &mut Handle, num_players: usize) -> Result<Hand, io::Error> {
+fn get_hand(handle: &mut Handle, players: &mut Players) -> Result<Hand, io::Error> {
     // Wait for hand
     let mut hand = match handle.read_frame()? {
         Some(Frame::Hand(hand)) => hand,
@@ -588,7 +586,7 @@ fn get_hand(handle: &mut Handle, num_players: usize) -> Result<Hand, io::Error> 
     println!("\nHand:");
     hand.pretty_print(true, false);
 
-    let num_discard = 4 - num_players;
+    let num_discard = 4 - players.len();
 
     let discard = prompt_user_discard(num_discard, hand.len().try_into().unwrap())?;
 
@@ -612,6 +610,16 @@ fn get_hand(handle: &mut Handle, num_players: usize) -> Result<Hand, io::Error> 
     };
 
     println!("Magic card dealt! ({})", magic);
+
+    // Score flipping a jack
+    if magic.value == 'J' {
+        println!(
+            "{} scored 2 for flipping a jack!",
+            players.current_dealer().name
+        );
+        players.current_dealer().add_play_score(2);
+    }
+
     hand.set_magic(magic);
 
     Ok(hand)

@@ -4,7 +4,6 @@ use cribbage::game::{Deck, Hand};
 use cribbage::handle::Handle;
 use std::io;
 use std::net::TcpListener;
-use std::thread;
 
 #[derive(Parser)]
 struct ServerArgs {
@@ -83,12 +82,9 @@ fn main() {
     loop {
         let mut players = collect_players(&listener, args.num_players);
 
-        thread::spawn(move || {
-            println!("Spawning game thread...");
-            if let Err(e) = game_loop(&mut players, args.num_players) {
-                eprintln!("Thread Error: {}", e);
-            }
-        });
+        if let Err(e) = game_loop(&mut players, args.num_players) {
+            eprintln!("Error: {}", e);
+        }
     }
 }
 
