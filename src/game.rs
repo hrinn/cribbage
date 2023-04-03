@@ -273,6 +273,10 @@ impl Hand {
             );
         }
 
+        if score == 0 {
+            println!("0 points!");
+        }
+
         score
     }
 

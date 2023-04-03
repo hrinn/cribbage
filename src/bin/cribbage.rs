@@ -19,9 +19,20 @@ struct Player {
     score: u8,
     play_score: u8,
     show_score: u8,
+    hand: Option<Hand>,
 }
 
 impl Player {
+    pub fn from_name(name: String) -> Player {
+        Player {
+            name,
+            score: 0,
+            play_score: 0,
+            show_score: 0,
+            hand: None,
+        }
+    }
+
     pub fn add_play_score(&mut self, score: u8) {
         self.play_score += score;
         self.score = min(self.score + score, 121);
@@ -30,6 +41,10 @@ impl Player {
     pub fn add_show_score(&mut self, score: u8) {
         self.show_score += score;
         self.score = min(self.score + score, 121);
+    }
+
+    pub fn hand(&self) -> &Hand {
+        self.hand.as_ref().expect("No hand found")
     }
 }
 
@@ -42,24 +57,17 @@ struct Players {
 impl Players {
     pub fn from(names: Vec<String>) -> Players {
         Players {
-            players: names
-                .into_iter()
-                .map(|name| Player {
-                    name,
-                    score: 0,
-                    play_score: 0,
-                    show_score: 0,
-                })
-                .collect_vec(),
+            players: names.into_iter().map(Player::from_name).collect_vec(),
             dealer_index: 0,
             player_index: 0,
         }
     }
 
-    pub fn reset_round_scores(&mut self) {
+    pub fn reset_round(&mut self) {
         for player in &mut self.players {
             player.play_score = 0;
             player.show_score = 0;
+            player.hand = None;
         }
     }
 
@@ -120,6 +128,13 @@ impl Players {
             .expect("No dealer found");
         self.dealer_index = (self.dealer_index + 1) % len;
         dealer.name.clone()
+    }
+
+    pub fn current_dealer(&mut self) -> &mut Player {
+        let len = self.players.len();
+        self.players
+            .get_mut((self.dealer_index + len - 1) % len)
+            .expect("No dealer found")
     }
 
     pub fn start_play(&mut self) {
@@ -203,8 +218,6 @@ fn game_loop(handle: &mut Handle, mut players: Players, name: String) -> Result<
     let num_players = players.len();
 
     while players.max_score() < 121 {
-        players.reset_round_scores();
-
         let dealer = players.next_dealer();
         println!("Dealer: {}", dealer);
 
@@ -218,21 +231,28 @@ fn game_loop(handle: &mut Handle, mut players: Players, name: String) -> Result<
 
         play(handle, &hand, &mut players, &name)?;
 
-        show(handle, hand, &mut players, &name, &dealer)?;
+        show(handle, hand, &mut players, &name)?;
 
-        std::thread::sleep(std::time::Duration::from_secs(5));
-        println!("\nScores:");
-        players.print_scores();
-        println!("\n");
-
-        std::thread::sleep(std::time::Duration::from_secs(10));
+        players.reset_round();
     }
 
     let winner = players.player_with_max_score();
 
     println!("{} wins!", winner.name);
 
+    for player in players.players {
+        if player.score <= 90 {
+            println!("{} got skunked!!! 🦨🤢🦨🤮", player.name);
+        }
+    }
+
     Ok(())
+}
+
+fn wait_enter() {
+    let mut input = String::new();
+    println!("\nPress enter to continue...");
+    io::stdin().read_line(&mut input).unwrap();
 }
 
 fn show(
@@ -240,48 +260,64 @@ fn show(
     hand: Hand,
     players: &mut Players,
     name: &String,
-    dealer: &String,
 ) -> Result<(), io::Error> {
     players.start_play();
     println!("\nShow!");
 
+    // Setup my hand
+    let hand_frame = Frame::Hand(hand.clone());
+    players
+        .players
+        .iter_mut()
+        .find(|p| p.name == *name)
+        .unwrap()
+        .hand = Some(hand);
+
+    // Receive player hands & send mine
     for _ in 0..players.len() {
         let player = players.next_player();
 
         if &player.name == name {
-            println!("\nYour Hand + Magic Card:");
-            hand.pretty_print(false, true);
-            player.add_show_score(hand.score());
-            handle.send_frame(&Frame::Hand(hand.clone()))?;
+            handle.send_frame(&hand_frame)?;
         } else {
-            // Receive hand from server and score
-            let hand = match handle.read_frame()? {
+            let recv_hand = match handle.read_frame()? {
                 Some(Frame::Hand(hand)) => hand,
                 Some(_) => return Err(io::ErrorKind::InvalidData.into()),
                 None => return Err(io::ErrorKind::UnexpectedEof.into()),
             };
 
-            std::thread::sleep(std::time::Duration::from_secs(5));
-
-            println!("\n{}'s Hand + Magic Card:", player.name);
-            hand.pretty_print(false, true);
-            player.add_show_score(hand.score());
-        }
-
-        if &player.name == dealer {
-            let crib = match handle.read_frame()? {
-                Some(Frame::Hand(crib)) => crib,
-                Some(_) => return Err(io::ErrorKind::InvalidData.into()),
-                None => return Err(io::ErrorKind::UnexpectedEof.into()),
-            };
-
-            std::thread::sleep(std::time::Duration::from_secs(5));
-
-            println!("\n{}'s Crib + Magic Card:", player.name);
-            crib.pretty_print(false, true);
-            player.add_show_score(crib.score());
+            player.hand = Some(recv_hand);
         }
     }
+
+    // Receive crib
+    let crib = match handle.read_frame()? {
+        Some(Frame::Hand(crib)) => crib,
+        Some(_) => return Err(io::ErrorKind::InvalidData.into()),
+        None => return Err(io::ErrorKind::UnexpectedEof.into()),
+    };
+
+    // Display hands
+    for _ in 0..players.len() {
+        let player = players.next_player();
+
+        println!("{}'s Hand + Magic Card", player.name);
+        player.hand().pretty_print(false, true);
+        player.add_show_score(player.hand().score());
+        wait_enter();
+    }
+
+    // Display crib
+    let dealer = players.current_dealer();
+    println!("{}'s Crib + Magic Card", dealer.name);
+    crib.pretty_print(false, true);
+    dealer.add_show_score(crib.score());
+    wait_enter();
+
+    // Display scores
+    println!("Scores:");
+    players.print_scores();
+    wait_enter();
 
     Ok(())
 }

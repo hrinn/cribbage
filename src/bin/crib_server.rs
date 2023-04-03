@@ -4,6 +4,7 @@ use cribbage::game::{Deck, Hand};
 use cribbage::handle::Handle;
 use std::io;
 use std::net::TcpListener;
+use std::thread;
 
 #[derive(Parser)]
 struct ServerArgs {
@@ -73,12 +74,25 @@ impl Players {
 fn main() {
     let args = ServerArgs::parse();
 
-    if let Err(e) = server(args) {
-        eprintln!("Error: {}", e);
+    let addr = format!("0.0.0.0:{}", args.port);
+
+    println!("Launching server on {}", addr);
+
+    let listener = TcpListener::bind(addr).expect("Failed to bind to address.");
+
+    loop {
+        let mut players = collect_players(&listener, args.num_players);
+
+        thread::spawn(move || {
+            println!("Spawning game thread...");
+            if let Err(e) = game_loop(&mut players, args.num_players) {
+                eprintln!("Thread Error: {}", e);
+            }
+        });
     }
 }
 
-fn collect_players(listener: TcpListener, num_players: usize) -> Players {
+fn collect_players(listener: &TcpListener, num_players: usize) -> Players {
     let mut players: Vec<Player> = Vec::new();
 
     println!("Waiting for {} players...", num_players);
@@ -97,11 +111,16 @@ fn collect_players(listener: TcpListener, num_players: usize) -> Players {
         match handle.read_frame() {
             Ok(Some(Frame::Name(name))) => {
                 println!("Player {} connected from {}", name, addr);
-                players.push(Player {
-                    handle,
-                    name,
-                    finished: false,
-                });
+
+                if players.iter().any(|player| player.name == name) {
+                    println!("Duplicate name, disconnecting {}", addr);
+                } else {
+                    players.push(Player {
+                        handle,
+                        name,
+                        finished: false,
+                    });
+                }
             }
             Ok(None) => println!("{} disconnected", addr),
             Ok(Some(_)) => println!("Incorrect first packet from {}", addr),
@@ -278,6 +297,8 @@ fn get_seed(dealer: &mut Player) -> Result<String, io::Error> {
 }
 
 fn game_loop(players: &mut Players, num_players: usize) -> Result<(), io::Error> {
+    send_start(players)?;
+
     let mut deck = Deck::new();
 
     loop {
@@ -305,20 +326,4 @@ fn game_loop(players: &mut Players, num_players: usize) -> Result<(), io::Error>
         println!("Recovered crib: {}", crib);
         deck.rejoin(crib);
     }
-}
-
-fn server(args: ServerArgs) -> Result<(), io::Error> {
-    let addr = format!("0.0.0.0:{}", args.port);
-
-    println!("Launching server on {}", addr);
-
-    let listener = TcpListener::bind(addr)?;
-
-    let mut players = collect_players(listener, args.num_players);
-
-    send_start(&mut players)?;
-
-    game_loop(&mut players, args.num_players)?;
-
-    Ok(())
 }
